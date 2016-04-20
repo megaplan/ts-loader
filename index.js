@@ -359,6 +359,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 };
             }
         });
+        instance.modifiedFiles = null;
         callback();
     });
     // manually update changed files
