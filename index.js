@@ -115,7 +115,8 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
         files: files,
         languageService: null,
         version: 0,
-        dependencyGraph: {}
+        dependencyGraph: {},
+        modifiedFiles: null
     };
     var compilerOptions = {};
     // Load any available tsconfig.json file
@@ -286,7 +287,6 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             callback();
             return;
         }
-        var stats = compilation.stats;
         // handle all other errors. The basic approach here to get accurate error
         // reporting is to start with a "blank slate" each compilation and gather
         // all errors from all files. Since webpack tracks errors in a module from
@@ -326,7 +326,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             }
         });
         // gather all errors from TypeScript and output them to webpack
-        Object.keys(instance.files)
+        Object.keys(instance.modifiedFiles || instance.files)
             .filter(function (filePath) { return !!filePath.match(/(\.d)?\.ts(x?)$/); })
             .forEach(function (filePath) {
             var errors = languageService.getSyntacticDiagnostics(filePath).concat(languageService.getSemanticDiagnostics(filePath));
@@ -347,7 +347,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             }
         });
         // gather all declaration files from TypeScript and output them to webpack
-        Object.keys(instance.files)
+        Object.keys(instance.modifiedFiles || instance.files)
             .filter(function (filePath) { return !!filePath.match(/\.ts(x?)$/); })
             .forEach(function (filePath) {
             var output = languageService.getEmitOutput(filePath);
@@ -364,6 +364,9 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
     // manually update changed files
     loader._compiler.plugin("watch-run", function (watching, cb) {
         var mtimes = watching.compiler.watchFileSystem.watcher.mtimes;
+        if (instance.modifiedFiles === null) {
+            instance.modifiedFiles = {};
+        }
         Object.keys(mtimes)
             .filter(function (filePath) { return !!filePath.match(/\.tsx?$|\.jsx?$/); })
             .forEach(function (filePath) {
@@ -373,6 +376,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 file.text = fs.readFileSync(filePath, { encoding: 'utf8' });
                 file.version++;
                 instance.version++;
+                instance.modifiedFiles[filePath] = file;
             }
         });
         cb();
