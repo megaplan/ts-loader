@@ -364,9 +364,6 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
     // manually update changed files
     loader._compiler.plugin("watch-run", function (watching, cb) {
         var mtimes = watching.compiler.watchFileSystem.watcher.mtimes;
-        if (instance.modifiedFiles === null) {
-            instance.modifiedFiles = {};
-        }
         Object.keys(mtimes)
             .filter(function (filePath) { return !!filePath.match(/\.tsx?$|\.jsx?$/); })
             .forEach(function (filePath) {
@@ -376,7 +373,6 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 file.text = fs.readFileSync(filePath, { encoding: 'utf8' });
                 file.version++;
                 instance.version++;
-                instance.modifiedFiles[filePath] = file;
             }
         });
         cb();
@@ -419,6 +415,11 @@ function loader(contents) {
         file.text = contents;
         instance.version++;
     }
+    // push this file to modified files hash.
+    if (!instance.modifiedFiles) {
+        instance.modifiedFiles = {};
+    }
+    instance.modifiedFiles[filePath] = file;
     var outputText, sourceMapText, diagnostics = [];
     if (options.transpileOnly) {
         var fileName = path.basename(filePath);
