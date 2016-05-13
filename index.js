@@ -326,10 +326,17 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             }
         });
         // gather all errors from TypeScript and output them to webpack
+        var filesWithErrors = null;
         Object.keys(instance.modifiedFiles || instance.files)
             .filter(function (filePath) { return !!filePath.match(/(\.d)?\.ts(x?)$/); })
             .forEach(function (filePath) {
             var errors = languageService.getSyntacticDiagnostics(filePath).concat(languageService.getSemanticDiagnostics(filePath));
+            if (errors.length > 0) {
+                if (null === filesWithErrors) {
+                    filesWithErrors = {};
+                }
+                filesWithErrors[filePath] = instance.files[filePath];
+            }
             // if we have access to a webpack module, use that
             if (hasOwnProperty(modules, filePath)) {
                 var associatedModules = modules[filePath];
@@ -359,7 +366,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 };
             }
         });
-        instance.modifiedFiles = null;
+        instance.modifiedFiles = filesWithErrors;
         callback();
     });
     // manually update changed files
