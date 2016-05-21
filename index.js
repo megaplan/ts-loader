@@ -116,6 +116,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
         languageService: null,
         version: 0,
         dependencyGraph: {},
+        reverseDependencyGraph: {},
         modifiedFiles: null
     };
     var compilerOptions = {};
@@ -182,7 +183,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
         // we do need to check for any issues with TS options though
         var program = compiler.createProgram([], compilerOptions), diagnostics = program.getOptionsDiagnostics();
         pushArray(loader._module.errors, formatErrors(diagnostics, instance, { file: configFilePath || 'tsconfig.json' }));
-        return { instance: instances[loaderOptions.instance] = { compiler: compiler, compilerOptions: compilerOptions, loaderOptions: loaderOptions, files: files, dependencyGraph: {} } };
+        return { instance: instances[loaderOptions.instance] = { compiler: compiler, compilerOptions: compilerOptions, loaderOptions: loaderOptions, files: files, dependencyGraph: {}, reverseDependencyGraph: {} } };
     }
     // Load initial files (core lib files, any files specified in tsconfig.json)
     var filePath;
@@ -275,7 +276,14 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 }
                 resolvedModules.push(resolutionResult);
             }
-            instance.dependencyGraph[containingFile] = resolvedModules.filter(function (m) { return m != null; }).map(function (m) { return m.resolvedFileName; });
+            var importedFiles = resolvedModules.filter(function (m) { return m != null; }).map(function (m) { return m.resolvedFileName; });
+            instance.dependencyGraph[containingFile] = importedFiles;
+            importedFiles.forEach(function (importedFileName) {
+                if (!instance.reverseDependencyGraph[importedFileName]) {
+                    instance.reverseDependencyGraph[importedFileName] = {};
+                }
+                instance.reverseDependencyGraph[importedFileName][containingFile] = true;
+            });
             return resolvedModules;
         }
     };
@@ -300,6 +308,23 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                     length--;
                 }
             }
+        }
+        /**
+         * Recursive collect all possible dependats of passed file
+         */
+        function collectAllDependants(fileName, collected) {
+            if (collected === void 0) { collected = {}; }
+            var result = {};
+            result[fileName] = true;
+            collected[fileName] = true;
+            if (instance.reverseDependencyGraph[fileName]) {
+                Object.keys(instance.reverseDependencyGraph[fileName]).forEach(function (dependantFileName) {
+                    if (!collected[dependantFileName]) {
+                        collectAllDependants(dependantFileName, collected).forEach(function (fName) { return result[fName] = true; });
+                    }
+                });
+            }
+            return Object.keys(result);
         }
         removeTSLoaderErrors(compilation.errors);
         // handle compiler option errors after the first compile
@@ -326,8 +351,29 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             }
         });
         // gather all errors from TypeScript and output them to webpack
-        var filesWithErrors = null;
-        Object.keys(instance.modifiedFiles || instance.files)
+        var filesWithErrors = {};
+        // calculate array of files to check
+        var filesToCheckForErrors = null;
+        if (!instance.modifiedFiles) {
+            // check all files on initial run
+            filesToCheckForErrors = instance.files;
+        }
+        else {
+            filesToCheckForErrors = {};
+            // check all modified files, and all dependants
+            Object.keys(instance.modifiedFiles).forEach(function (modifiedFileName) {
+                collectAllDependants(modifiedFileName).forEach(function (fName) {
+                    filesToCheckForErrors[fName] = instance.files[fName];
+                });
+            });
+        }
+        // re-check files with errors from previous build
+        if (instance.filesWithErrors) {
+            Object.keys(instance.filesWithErrors).forEach(function (fileWithErrorName) {
+                return filesToCheckForErrors[fileWithErrorName] = instance.filesWithErrors[fileWithErrorName];
+            });
+        }
+        Object.keys(filesToCheckForErrors)
             .filter(function (filePath) { return !!filePath.match(/(\.d)?\.ts(x?)$/); })
             .forEach(function (filePath) {
             var errors = languageService.getSyntacticDiagnostics(filePath).concat(languageService.getSemanticDiagnostics(filePath));
@@ -354,7 +400,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
             }
         });
         // gather all declaration files from TypeScript and output them to webpack
-        Object.keys(instance.modifiedFiles || instance.files)
+        Object.keys(filesToCheckForErrors)
             .filter(function (filePath) { return !!filePath.match(/\.ts(x?)$/); })
             .forEach(function (filePath) {
             var output = languageService.getEmitOutput(filePath);
@@ -366,7 +412,8 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 };
             }
         });
-        instance.modifiedFiles = filesWithErrors;
+        instance.filesWithErrors = filesWithErrors;
+        instance.modifiedFiles = null;
         callback();
     });
     // manually update changed files
