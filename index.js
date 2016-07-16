@@ -289,6 +289,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
     };
     var languageService = instance.languageService = compiler.createLanguageService(servicesHost, compiler.createDocumentRegistry());
     var getCompilerOptionDiagnostics = true;
+    var checkAllFilesForErrors = true;
     loader._compiler.plugin("after-compile", function (compilation, callback) {
         // Don't add errors for child compilations
         if (compilation.compiler.isChild()) {
@@ -354,9 +355,10 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
         var filesWithErrors = {};
         // calculate array of files to check
         var filesToCheckForErrors = null;
-        if (!instance.modifiedFiles) {
+        if (checkAllFilesForErrors) {
             // check all files on initial run
             filesToCheckForErrors = instance.files;
+            checkAllFilesForErrors = false;
         }
         else {
             filesToCheckForErrors = {};
@@ -419,6 +421,9 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
     // manually update changed files
     loader._compiler.plugin("watch-run", function (watching, cb) {
         var mtimes = watching.compiler.watchFileSystem.watcher.mtimes;
+        if (null === instance.modifiedFiles) {
+            instance.modifiedFiles = {};
+        }
         Object.keys(mtimes)
             .filter(function (filePath) { return !!filePath.match(/\.tsx?$|\.jsx?$/); })
             .forEach(function (filePath) {
@@ -428,6 +433,7 @@ function ensureTypeScriptInstance(loaderOptions, loader) {
                 file.text = fs.readFileSync(filePath, { encoding: 'utf8' });
                 file.version++;
                 instance.version++;
+                instance.modifiedFiles[filePath] = file;
             }
         });
         cb();
